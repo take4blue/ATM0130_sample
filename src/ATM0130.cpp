@@ -36,7 +36,7 @@ static void transfer_callback(spi_transaction_t *t)
 void ATM0130::writeReg(uint8_t data)
 {
   if (nQue_ >= transSize_) {
-    end();
+    queResults();
   }
   auto index = posQue_ % transSize_;
   memset(trans_ + index, 0, sizeof(spi_transaction_t));
@@ -57,7 +57,7 @@ void ATM0130::writeData(size_t len, uint8_t *buffer)
   }
   else {
     if (nQue_ >= transSize_) {
-      end();
+      queResults();
     }
     auto index = posQue_ % transSize_;
     memset(trans_ + index, 0, sizeof(spi_transaction_t));
@@ -74,7 +74,7 @@ void ATM0130::writeData(size_t len, uint8_t *buffer)
 void ATM0130::writeData(size_t len, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t d4)
 {
   if (nQue_ >= transSize_) {
-    end();
+    queResults();
   }
   if (len <= 4) {
     auto index = posQue_ % transSize_;
@@ -99,18 +99,28 @@ void ATM0130::writeData(uint8_t data) {
 
 void ATM0130::start()
 {
-  end();
+  queResults();
+  auto ret = spi_device_acquire_bus(device_, portMAX_DELAY);
+  assert(ret == ESP_OK);
+}
+
+void ATM0130::queResults(int pos)
+{
+	spi_transaction_t* rtrans;
+	esp_err_t ret;
+	for (; nQue_ > pos; nQue_--) {
+		ret = spi_device_get_trans_result(device_, &rtrans, portMAX_DELAY);
+		assert(ret == ESP_OK);
+	}
+  if (pos == 0) {
+    posQue_ = 0;
+  }
 }
 
 void ATM0130::end()
 {
-	spi_transaction_t* rtrans;
-	esp_err_t ret;
-	for (; nQue_ > 0; nQue_--) {
-		ret = spi_device_get_trans_result(device_, &rtrans, portMAX_DELAY);
-		assert(ret == ESP_OK);
-	}
-  posQue_ = 0;
+  queResults();
+  spi_device_release_bus(device_);
 }
 
 void ATM0130::begin(void)
@@ -131,6 +141,7 @@ void ATM0130::begin(void)
       0 };
 
   esp_err_t ret = spi_bus_initialize(VSPI_HOST, &buscfg, 2);
+  assert(ret == ESP_OK);
 
   spi_device_interface_config_t devcfg = {
       0, 0, 0,
@@ -150,105 +161,116 @@ void ATM0130::begin(void)
     buffer_[i] = (uint16_t*)heap_caps_malloc(bufferSize_ * sizeof(uint16_t), MALLOC_CAP_DMA);
   }
 
-  writeReg(0x11);
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0x11);
+  }
   delay(100);
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0x36);  //MADCTL
+    writeData(0x00);
+    //MY=0
+    //MX=0
+    //MV=0
+    //ML=0
+    //RGB=0
+    //MH=0
+    writeReg(0x3A);
+    writeData(0x55); //65K color , 16bit / pixel
 
-  start();
-  writeReg(0x36);  //MADCTL
-  writeData(0x00);
-  //MY=0
-  //MX=0
-  //MV=0
-  //ML=0
-  //RGB=0
-  //MH=0
-  writeReg(0x3A);
-  writeData(0x55); //65K color , 16bit / pixel
+    ////--------------------------------ST7789V Frame rate
 
-  ////--------------------------------ST7789V Frame rate
-
-  writeReg(0xb2);
-  writeData(4, 0x0, 0xc0, 0xc00, 0x33);
-  writeData(0x33);
-  end();
+    writeReg(0xb2);
+    writeData(4, 0x0c, 0x0c, 0x0c, 0x33);
+    writeData(0x33);
+  }
   delay(2);
 
-  start();
-  writeReg(0xb7);
-  writeData(0x75);
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xb7);
+    writeData(0x75);
+  }
   delay(2);
   ////---------------------------------ST7789V Power
-  start();
-  writeReg(0xc2);
-  writeData(0x01);
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xc2);
+    writeData(0x01);
+  }
   delay(2);
 
-  start();
-  writeReg(0xc3);
-  writeData(0x10);
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xc3);
+    writeData(0x10);
+  }
   delay(2);
-  start();
-  writeReg(0xc4);
-  writeData(0x20);
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xc4);
+    writeData(0x20);
+  }
   delay(2);
-  start();
-  writeReg(0xc6);
-  writeData(0x0f);
-  writeReg(0xb0);
-  writeData(2, 0x00, 0xf0, 0, 0);//RRRR RGGGG GGGB BBBB
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xc6);
+    writeData(0x0f);
+    writeReg(0xb0);
+    writeData(2, 0x00, 0xf0, 0, 0);//RRRR RGGGG GGGB BBBB
+  }
   delay(2);
 
-  start();
-  writeReg(0xD0);
-  writeData(2, 0xA4, 0xA1, 0, 0);
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xD0);
+    writeData(2, 0xA4, 0xA1, 0, 0);
+  }
   delay(2);
 
   ////--------------------------------ST7789V gamma
-  start();
-  writeReg(0x21);
-  end();
-
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0x21);
+  }
   delay(2);
 
-  start();
-  writeReg(0xbb);
-  writeData(0x3b);
-  end();
-
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xbb);
+    writeData(0x3b);
+  }
   delay(2);
 
-  start();
-  writeReg(0xE0);    //Set Gamma
-  writeData(4, 0xF0, 0x0b, 0x11, 0x0e);
-  writeData(4, 0x0d, 0x19, 0x36, 0x33);
-  writeData(4, 0x4b, 0x07, 0x14, 0x14);
-  writeData(2, 0x2c, 0x2e, 0, 0);
-  end();
-
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xE0);    //Set Gamma
+    writeData(4, 0xF0, 0x0b, 0x11, 0x0e);
+    writeData(4, 0x0d, 0x19, 0x36, 0x33);
+    writeData(4, 0x4b, 0x07, 0x14, 0x14);
+    writeData(2, 0x2c, 0x2e, 0, 0);
+  }
   delay(2);
 
-  start();
-  writeReg(0xE1);    //Set Gamma
-  writeData(4, 0xF0, 0x0d, 0x12, 0x0b);
-  writeData(4, 0x09, 0x03, 0x32, 0x44);
-  writeData(4, 0x48, 0x39, 0x16, 0x16);
-  writeData(2, 0x2d, 0x30, 0, 0);
-  writeReg(0x2A);
-  writeData(4, 0x00, 0x00, 0x00, 0xEF);
-  writeReg(0x2B);
-  writeData(4, 0x00, 0x00, 0x00, 0xEF);
-  writeReg(0x29);    //Display on
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0xE1);    //Set Gamma
+    writeData(4, 0xF0, 0x0d, 0x12, 0x0b);
+    writeData(4, 0x09, 0x03, 0x32, 0x44);
+    writeData(4, 0x48, 0x39, 0x16, 0x16);
+    writeData(2, 0x2d, 0x30, 0, 0);
+    writeReg(0x2A);
+    writeData(4, 0x00, 0x00, 0x00, 0xEF);
+    writeReg(0x2B);
+    writeData(4, 0x00, 0x00, 0x00, 0xEF);
+    writeReg(0x29);    //Display on
+  }
   delay(2);
-  start();
-  writeReg(0x2c);
-  end();
+  {
+    AutoLocker<ATM0130> lock(*this);
+    writeReg(0x2c);
+  }
 }
 
 void ATM0130::setFigColor(uint8_t r, uint8_t g, uint8_t b) {
@@ -261,26 +283,18 @@ void ATM0130::setFigColor(uint16_t c) {
 
 void ATM0130::drawRectangle(uint8_t x, uint8_t y, uint8_t width, uint8_t height) {
   int loop = width * height;
-
-  start();
+  AutoLocker<ATM0130> lock(*this);
   setWindow(x, y, width, height);
-  end();
   int index = 0;
   for (int i = 0; i < loop; index++) {
-    if (index >= bufferNum_) {
-      spi_transaction_t* rtrans;
-      esp_err_t ret = spi_device_get_trans_result(device_, &rtrans, portMAX_DELAY);
-      assert(ret == ESP_OK);
-      nQue_--;
-    }
     auto buffer = buffer_[index % bufferNum_];
     int j = 0;
     for (; j < bufferSize_ && i < loop; j++, i++) {
       buffer[j] = fig_color;
     }
+    queResults(bufferNum_ - 2);
     writeData(j * sizeof(uint16_t), (uint8_t*)buffer);
   }
-  end();
 }
 
 void ATM0130::setCharPlace(uint8_t x, uint8_t y) {
@@ -365,7 +379,7 @@ void ATM0130::setCharQueue(uint8_t c) {
 }
 
 void ATM0130::writeCharQueue() {
-  start();
+  AutoLocker<ATM0130> lock(*this);
   setWindow(char_x, char_y, 5, 8);
   for (uint8_t i = 0; i < 5; i++) {
     for (uint8_t j = 0; j < 8; j++) {
@@ -381,7 +395,6 @@ void ATM0130::writeCharQueue() {
   for (uint8_t i = 0; i < 8; i++) {
     putPixel(char_color_bg);
   }
-  end();
 }
 
 uint16_t ATM0130::convRGB(uint8_t red, uint8_t green, uint8_t blue) {

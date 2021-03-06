@@ -2,6 +2,19 @@
 #include <stdint.h>
 #include <string>
 
+template <typename T>
+class AutoLocker {
+private:
+  T& target_;
+public:
+  AutoLocker(T& target) : target_(target) {
+    target_.start();
+  }
+  ~AutoLocker() {
+    target_.end();
+  }
+};
+
 class ATM0130 {
   public:
     ATM0130(uint8_t pin_dat_cmd, uint8_t pin_reset);
@@ -19,6 +32,9 @@ class ATM0130 {
     void print(char ch);
     void print(const std::string& str);
 
+    void start();
+    void end();
+
   private:
     spi_device_handle_t device_;
 
@@ -29,8 +45,7 @@ class ATM0130 {
     void resetLCD(void);
     void setWindow(uint8_t x, uint8_t y, uint8_t width, uint8_t height);
 
-    void start();
-    void end();
+    void queResults(int pos = 0);
     
     void putPixel(uint16_t color) ;
     void setCharQueue(uint8_t c) ;
