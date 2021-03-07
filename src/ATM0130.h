@@ -32,7 +32,6 @@ class ATM0130 {
     uint8_t char_x, char_y;
     gpio_num_t dcPin_;
     gpio_num_t resetPin_;
-    bool is_reset_inv;
     uint8_t nQue_;
     uint8_t posQue_;
     spi_transaction_t *trans_;
