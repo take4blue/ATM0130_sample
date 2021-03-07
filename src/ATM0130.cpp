@@ -380,20 +380,20 @@ void ATM0130::setCharQueue(uint8_t c)
 void ATM0130::writeCharQueue()
 {
   AutoLocker<ATM0130> lock(*this);
-  setWindow(char_x, char_y, 5, 8);
+  int counter = 0;
+  setWindow(char_x, char_y, 6, 8);
   for (uint8_t i = 0; i < 5; i++) {
-    for (uint8_t j = 0; j < 8; j++) {
+    for (uint8_t j = 0; j < 8; j++, counter++) {
       if ((char_queue[i] & (0x80 >> j)) > 0) {
         putPixel(char_color);
       }
       else {
         putPixel(char_color_bg);
       }
+      if (counter % 5 == 4) {
+        putPixel(char_color_bg);
+      }
     }
-  }
-  setWindow(char_x + 5, char_y, 1, 8);
-  for (uint8_t i = 0; i < 8; i++) {
-    putPixel(char_color_bg);
   }
 }
 
