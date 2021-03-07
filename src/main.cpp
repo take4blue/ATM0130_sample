@@ -3,8 +3,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-#define delay(x) vTaskDelay(x/portTICK_PERIOD_MS)
-
 //ピンの割り当て (D/C , /RES)
 ATM0130 myATM0130 = ATM0130(GPIO_NUM_16, GPIO_NUM_17);
 
@@ -68,9 +66,8 @@ void loop() {
   myATM0130.print("http://akizukidenshi.com/\n");
 
   // 5秒待つ
-  delay(5000);
+  vTaskDelay(5000/portTICK_PERIOD_MS);
 }
-
 
 extern "C" void app_main()
 {

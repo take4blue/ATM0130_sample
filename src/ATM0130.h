@@ -1,17 +1,20 @@
 #include <driver/spi_master.h>
 #include <stdint.h>
 #include <string>
+#include <esp32/rom/ets_sys.h>
 
 template <typename T>
 class AutoLocker {
 private:
   T& target_;
+  int delayTime_;
 public:
-  AutoLocker(T& target) : target_(target) {
+  AutoLocker(T& target, int delayTime = 0) : target_(target), delayTime_(delayTime) {
     target_.start();
   }
   ~AutoLocker() {
     target_.end();
+    ets_delay_us(delayTime_ * 1000);
   }
 };
 
@@ -44,10 +47,10 @@ class ATM0130 {
     void writeData(size_t len, uint8_t *buffer);
     void resetLCD(void);
     void setWindow(uint8_t x, uint8_t y, uint8_t width, uint8_t height);
+    void putPixel(uint16_t color) ;
 
     void queResults(int pos = 0);
-    
-    void putPixel(uint16_t color) ;
+
     void setCharQueue(uint8_t c) ;
     void writeCharQueue() ;
     uint16_t convRGB(uint8_t red, uint8_t green, uint8_t blue) ;
