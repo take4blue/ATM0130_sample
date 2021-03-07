@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string>
 #include <esp32/rom/ets_sys.h>
+#include <driver/gpio.h>
 
 template <typename T>
 class AutoLocker {
@@ -19,9 +20,27 @@ public:
 };
 
 class ATM0130 {
+  private:
+    spi_device_handle_t device_;
+
+    static const int transSize_ = 7;
+    static const int bufferSize_ = 512;
+    static const int bufferNum_ = 3;
+    static const int freq_ = SPI_MASTER_FREQ_40M;
+
+    uint16_t fig_color, char_color, char_color_bg;
+    uint8_t char_x, char_y;
+    gpio_num_t dcPin_;
+    gpio_num_t resetPin_;
+    bool is_reset_inv;
+    uint8_t nQue_;
+    uint8_t posQue_;
+    spi_transaction_t *trans_;
+    uint16_t *buffer_[bufferNum_];
+
   public:
-    ATM0130(uint8_t pin_dat_cmd, uint8_t pin_reset);
-    void begin(void);
+    ATM0130(gpio_num_t dcPin, gpio_num_t resetPin);
+    void begin(int mosi, int miso, int sclk, int cs, int freq = freq_);
 
     void setFigColor(uint8_t r, uint8_t g, uint8_t b);
     void setFigColor(uint16_t c);
@@ -39,8 +58,6 @@ class ATM0130 {
     void end();
 
   private:
-    spi_device_handle_t device_;
-
     void writeReg(uint8_t data);
     void writeData(uint8_t data);
     void writeData(size_t len, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t d4);
@@ -53,21 +70,7 @@ class ATM0130 {
 
     void setCharQueue(uint8_t c) ;
     void writeCharQueue() ;
-    uint16_t convRGB(uint8_t red, uint8_t green, uint8_t blue) ;
-
-    static const int transSize_ = 7;
-    static const int bufferSize_ = 512;
-    static const int bufferNum_ = 3;
-    static const int freq_ = 1000000;
-
-    uint16_t fig_color, char_color, char_color_bg;
-    uint8_t char_x, char_y;
-    uint8_t dat_cmd, reset;
-    bool is_reset_inv;
-    uint8_t nQue_;
-    uint8_t posQue_;
-    spi_transaction_t *trans_;
-    uint16_t *buffer_[bufferNum_];
+    uint16_t convRGB(uint8_t red, uint8_t green, uint8_t blue);
 
     uint8_t char_queue[5];
     volatile uint8_t chars[475] = {

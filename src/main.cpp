@@ -23,7 +23,7 @@ void setup() {
   };
   gpio_config(&io_conf);
   probe();
-  myATM0130.begin();
+  myATM0130.begin(GPIO_NUM_23, -1, GPIO_NUM_18, GPIO_NUM_5, 1000000);
 }
 
 void colorBar() {

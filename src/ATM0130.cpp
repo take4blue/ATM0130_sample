@@ -1,18 +1,17 @@
 #include <memory.h>
 #include <algorithm>
 #include "ATM0130.h"
-#include <driver/gpio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
-ATM0130::ATM0130(uint8_t pin_dat_cmd, uint8_t pin_reset)
+ATM0130::ATM0130(gpio_num_t dcPin, gpio_num_t resetPin)
 : fig_color(0)
 , char_color(0)
 , char_color_bg(0)
 , char_x(0)
 , char_y(0)
-, dat_cmd(pin_dat_cmd)
-, reset(pin_reset)
+, dcPin_(dcPin)
+, resetPin_(resetPin)
 , is_reset_inv(true)
 , nQue_(0)
 , posQue_(0)
@@ -41,7 +40,7 @@ void ATM0130::writeReg(uint8_t data)
   trans_[index].flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
   trans_[index].length = 8;
   trans_[index].tx_data[0] = data;
-  trans_[index].user = (void*)(dat_cmd);
+  trans_[index].user = (void*)(dcPin_);
   auto ret = spi_device_queue_trans(device_, trans_ + index, portMAX_DELAY);
   assert(ret == ESP_OK);
   nQue_++;
@@ -61,7 +60,7 @@ void ATM0130::writeData(size_t len, uint8_t *buffer)
     memset(trans_ + index, 0, sizeof(spi_transaction_t));
     trans_[index].length = 8 * len;
     trans_[index].tx_buffer = buffer;
-    trans_[index].user = (void*)(0x100 | dat_cmd);
+    trans_[index].user = (void*)(0x100 | dcPin_);
 		auto ret = spi_device_queue_trans(device_, trans_ + index, portMAX_DELAY);
 		assert(ret == ESP_OK);
     nQue_++;
@@ -83,7 +82,7 @@ void ATM0130::writeData(size_t len, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t 
     trans_[index].tx_data[1] = d2;
     trans_[index].tx_data[2] = d3;
     trans_[index].tx_data[3] = d4;
-    trans_[index].user = (void*)(0x100 | dat_cmd);
+    trans_[index].user = (void*)(0x100 | dcPin_);
 		auto ret = spi_device_queue_trans(device_, trans_ + index, portMAX_DELAY);
 		assert(ret == ESP_OK);
     nQue_++;
@@ -91,8 +90,9 @@ void ATM0130::writeData(size_t len, uint8_t d1, uint8_t d2, uint8_t d3, uint8_t 
   }
 }
 
-void ATM0130::writeData(uint8_t data) {
-  writeData(1, &data);
+void ATM0130::writeData(uint8_t data)
+{
+  writeData(1, data, 0, 0, 0);
 }
 
 void ATM0130::start()
@@ -121,10 +121,10 @@ void ATM0130::end()
   spi_device_release_bus(device_);
 }
 
-void ATM0130::begin(void)
+void ATM0130::begin(int mosi, int miso, int sclk, int cs, int freq)
 {
   gpio_config_t io_conf = {
-      1ULL << dat_cmd | 1ULL << reset,
+      1ULL << dcPin_ | 1ULL << resetPin_,
       GPIO_MODE_OUTPUT,
       GPIO_PULLUP_DISABLE,
       GPIO_PULLDOWN_DISABLE,
@@ -134,25 +134,32 @@ void ATM0130::begin(void)
 
   resetLCD();
   // SPIの初期化
-  spi_bus_config_t buscfg = { GPIO_NUM_23, -1, GPIO_NUM_18, -1, -1,
-      SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_SCLK | SPICOMMON_BUSFLAG_MOSI,
-      0 };
+  spi_bus_config_t buscfg = { 
+    .mosi_io_num = mosi,
+    .miso_io_num = miso,
+    .sclk_io_num = sclk, 
+    .quadwp_io_num = -1,
+    .quadhd_io_num = -1,
+    .max_transfer_sz = sizeof(uint16_t) * bufferSize_,
+    .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_SCLK | SPICOMMON_BUSFLAG_MOSI,
+    .intr_flags = 0
+  };
 
   esp_err_t ret = spi_bus_initialize(VSPI_HOST, &buscfg, 2);
   assert(ret == ESP_OK);
 
-  auto freq = spi_get_actual_clock(APB_CLK_FREQ, freq_, 0);
+  auto freqw = spi_get_actual_clock(APB_CLK_FREQ, freq, 0);
   spi_device_interface_config_t devcfg = {
-      0, 0, 0,
-      0, // SPI mode
-      0, 0, 0,
-      freq,
-      0,
-      GPIO_NUM_5, //CS pin
-      0,
-      transSize_, //We want to be able to queue 7 transactions at a time
-      transfer_callback,
-      nullptr
+      .command_bits = 0, .address_bits = 0, .dummy_bits = 0,
+      .mode = 0, // SPI mode
+      .duty_cycle_pos = 0, .cs_ena_pretrans = 0, .cs_ena_posttrans = 0,
+      .clock_speed_hz = freqw,
+      .input_delay_ns = 0,
+      .spics_io_num = cs, //CS pin
+      .flags = 0,
+      .queue_size = transSize_, //We want to be able to queue 7 transactions at a time
+      .pre_cb = transfer_callback,
+      .post_cb = nullptr
   };
   ret = spi_bus_add_device(VSPI_HOST, &devcfg, &device_);
   trans_ = (spi_transaction_t*)heap_caps_malloc(transSize_ * sizeof(spi_transaction_t), MALLOC_CAP_DEFAULT);
@@ -252,36 +259,44 @@ void ATM0130::begin(void)
   }
 }
 
-void ATM0130::setFigColor(uint8_t r, uint8_t g, uint8_t b) {
+void ATM0130::setFigColor(uint8_t r, uint8_t g, uint8_t b)
+{
   fig_color = convRGB(r, g, b);
 }
 
-void ATM0130::setFigColor(uint16_t c) {
+void ATM0130::setFigColor(uint16_t c)
+{
   fig_color = c;
 }
 
-void ATM0130::setCharPlace(uint8_t x, uint8_t y) {
+void ATM0130::setCharPlace(uint8_t x, uint8_t y)
+{
   char_x = x;
   char_y = y;
 }
 
-void ATM0130::setCharColor(uint8_t r, uint8_t g, uint8_t b) {
+void ATM0130::setCharColor(uint8_t r, uint8_t g, uint8_t b)
+{
   char_color = convRGB(r, g, b);
 }
 
-void ATM0130::setCharColor(uint16_t c) {
+void ATM0130::setCharColor(uint16_t c)
+{
   char_color = c;
 }
 
-void ATM0130::setCharColorBG(uint8_t r, uint8_t g, uint8_t b) {
+void ATM0130::setCharColorBG(uint8_t r, uint8_t g, uint8_t b)
+{
   char_color_bg = convRGB(r, g, b);
 }
 
-void ATM0130::setCharColorBG(uint16_t c) {
+void ATM0130::setCharColorBG(uint16_t c)
+{
   char_color_bg = c;
 }
 
-void ATM0130::print(char ch) {
+void ATM0130::print(char ch)
+{
   if (char_x > 235) {
     char_x = 0;
     char_y += 8;
@@ -302,20 +317,23 @@ void ATM0130::print(char ch) {
   }
 }
 
-void ATM0130::print(const std::string& str) {
+void ATM0130::print(const std::string& str)
+{
   std::for_each(str.begin(), str.end(), [this](char x){print(x);});
 }
 
-void ATM0130::resetLCD(void) {
-  gpio_set_level((gpio_num_t)reset, 1);
+void ATM0130::resetLCD(void)
+{
+  gpio_set_level(resetPin_, 1);
   vTaskDelay(20/portTICK_PERIOD_MS);
-  gpio_set_level((gpio_num_t)reset, 0);
+  gpio_set_level(resetPin_, 0);
   vTaskDelay(20/portTICK_PERIOD_MS);
-  gpio_set_level((gpio_num_t)reset, 1);
+  gpio_set_level(resetPin_, 1);
   vTaskDelay(20/portTICK_PERIOD_MS);
 }
 
-void ATM0130::setWindow(uint8_t x, uint8_t y, uint8_t width, uint8_t height) {
+void ATM0130::setWindow(uint8_t x, uint8_t y, uint8_t width, uint8_t height)
+{
   writeReg(0x2A);
   writeData(4, 0x00, x, 0x00, x + width - 1);
   writeReg(0x2B);
@@ -323,11 +341,13 @@ void ATM0130::setWindow(uint8_t x, uint8_t y, uint8_t width, uint8_t height) {
   writeReg(0x2c);
 }
 
-void ATM0130::putPixel(uint16_t color) {
+void ATM0130::putPixel(uint16_t color)
+{
   writeData(2, (uint8_t*)& color);
 }
 
-void ATM0130::drawRectangle(uint8_t x, uint8_t y, uint8_t width, uint8_t height) {
+void ATM0130::drawRectangle(uint8_t x, uint8_t y, uint8_t width, uint8_t height)
+{
   int loop = width * height;
   AutoLocker<ATM0130> lock(*this);
   setWindow(x, y, width, height);
@@ -343,7 +363,8 @@ void ATM0130::drawRectangle(uint8_t x, uint8_t y, uint8_t width, uint8_t height)
   }
 }
 
-void ATM0130::setCharQueue(uint8_t c) {
+void ATM0130::setCharQueue(uint8_t c)
+{
   if ((c >= 0x20) && (c <= 0x7E)) {
     c -= 0x20;
     for (uint8_t i = 0; i < 5; i++) {
@@ -357,7 +378,8 @@ void ATM0130::setCharQueue(uint8_t c) {
   }
 }
 
-void ATM0130::writeCharQueue() {
+void ATM0130::writeCharQueue()
+{
   AutoLocker<ATM0130> lock(*this);
   setWindow(char_x, char_y, 5, 8);
   for (uint8_t i = 0; i < 5; i++) {
@@ -376,7 +398,8 @@ void ATM0130::writeCharQueue() {
   }
 }
 
-uint16_t ATM0130::convRGB(uint8_t red, uint8_t green, uint8_t blue) {
+uint16_t ATM0130::convRGB(uint8_t red, uint8_t green, uint8_t blue)
+{
   uint16_t color = 0;
   color = blue >> 3;
   color |= ((green & 0xFC) << 3);
