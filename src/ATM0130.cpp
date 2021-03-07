@@ -15,6 +15,8 @@ ATM0130::ATM0130(gpio_num_t dcPin, gpio_num_t resetPin)
 , nQue_(0)
 , posQue_(0)
 , trans_(nullptr)
+, index_ (0)
+, pos_(0)
 {
   setFigColor(0x0000);
   setCharColor(0xFFFF);
@@ -338,11 +340,29 @@ void ATM0130::setWindow(uint8_t x, uint8_t y, uint8_t width, uint8_t height)
   writeReg(0x2B);
   writeData(4, 0x00, y, 0x00, y + height - 1);
   writeReg(0x2c);
+  index_ = pos_ = 0;
 }
 
 void ATM0130::putPixel(uint16_t color)
 {
-  writeData(2, (uint8_t*)& color);
+  auto buffer = buffer_[index_ % bufferNum_];
+  buffer[pos_] = color;
+  pos_++;
+  if (pos_ % bufferSize_ == 0) {
+    queResults(bufferNum_ - 2);
+    writeData(bufferSize_ * sizeof(uint16_t), (uint8_t*)buffer);
+    pos_ = 0;
+    index_++;
+  }
+}
+
+void ATM0130::endWindow()
+{
+  if (pos_ != 0) {
+    auto buffer = buffer_[index_ % bufferNum_];
+    queResults(bufferNum_ - 2);
+    writeData(pos_ * sizeof(uint16_t), (uint8_t*)buffer);
+  }
 }
 
 void ATM0130::drawRectangle(uint8_t x, uint8_t y, uint8_t width, uint8_t height)
@@ -350,16 +370,10 @@ void ATM0130::drawRectangle(uint8_t x, uint8_t y, uint8_t width, uint8_t height)
   int loop = width * height;
   AutoLocker<ATM0130> lock(*this);
   setWindow(x, y, width, height);
-  int index = 0;
-  for (int i = 0; i < loop; index++) {
-    auto buffer = buffer_[index % bufferNum_];
-    int j = 0;
-    for (; j < bufferSize_ && i < loop; j++, i++) {
-      buffer[j] = fig_color;
-    }
-    queResults(bufferNum_ - 2);
-    writeData(j * sizeof(uint16_t), (uint8_t*)buffer);
+  for (int i = 0; i < loop; i++) {
+    putPixel(fig_color);
   }
+  endWindow();
 }
 
 void ATM0130::setCharQueue(uint8_t c)
@@ -395,6 +409,7 @@ void ATM0130::writeCharQueue()
       }
     }
   }
+  endWindow();
 }
 
 uint16_t ATM0130::convRGB(uint8_t red, uint8_t green, uint8_t blue)

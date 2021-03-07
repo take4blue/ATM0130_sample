@@ -36,6 +36,8 @@ class ATM0130 {
     uint8_t posQue_;
     spi_transaction_t *trans_;
     uint16_t *buffer_[bufferNum_];
+    int index_;
+    int pos_;
 
   public:
     ATM0130(gpio_num_t dcPin, gpio_num_t resetPin);
@@ -64,6 +66,7 @@ class ATM0130 {
     void resetLCD(void);
     void setWindow(uint8_t x, uint8_t y, uint8_t width, uint8_t height);
     void putPixel(uint16_t color) ;
+    void endWindow();
 
     void queResults(int pos = 0);
 
